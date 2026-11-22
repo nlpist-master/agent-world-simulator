@@ -73,6 +73,7 @@ function bubble(m) {
 }
 function updateEmpty() {
   $('#empty').hidden = !!run;
+  $('#home').hidden = !run || isRunning;  // "שיחה חדשה" רק כשיש שיחה על המסך והיא לא רצה
 }
 function add(speaker, text) {
   const m = { speaker, text, ts: Date.now() };
@@ -126,6 +127,7 @@ function setBusy(b) {
   isRunning = b; $('#cancel').hidden = !b; $('#go').disabled = b;
   $('#go').textContent = b ? 'העוזר עובד...' : 'שלח לעוזר';
   document.querySelectorAll('.chip').forEach(c => c.disabled = b);
+  updateEmpty();
 }
 function renderRun() {
   $('#chat').replaceChildren();
@@ -138,6 +140,17 @@ function openRun(r) {
   run = JSON.parse(JSON.stringify(r));
   if (run.status === 'running') run.status = 'error';  // ריצה שנקטעה (למשל סגירת הדף)
   renderRun();
+}
+
+// חזרה למסך הראשי: אותו מצב כמו בטעינת הדף. ההיסטוריה נשמרת (saveRun כבר רץ בכל שלב)
+function goHome() {
+  if (isRunning) return alert('יש ריצה פעילה. בטלו אותה קודם.');
+  run = null;
+  $('#chat').replaceChildren(); $('#result').replaceChildren(); $('#result').hidden = true;
+  hideAll(); setInfo();
+  $('#reqIn').value = '';
+  window.scrollTo({ top: 0 });
+  $('#reqIn').focus({ preventScroll: true });
 }
 
 // ---------- API ----------
@@ -279,5 +292,7 @@ $('#retry').onclick = () => {
   run.status = 'running'; $('#error').hidden = true; setInfo();
   loop();
 };
+$('#home').onclick = goHome;
+$('#homeLink').onclick = e => { e.preventDefault(); goHome(); };
 $('#clearHist').onclick = () => { if (confirm('למחוק את כל ההיסטוריה?')) { save(LS.history, []); renderHistory(); } };
 init();
