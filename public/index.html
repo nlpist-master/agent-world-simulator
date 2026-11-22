@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>סימולטור עולם הסוכנים</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <div class="hwrap">
+    <h1>🌐 סימולטור עולם הסוכנים</h1>
+    <p class="sim-note">⚠️ זוהי סימולציה בלבד: אין שיחות, תשלומים או הזמנות אמיתיות.</p>
+  </div>
+</header>
+<main>
+  <section class="stage">
+    <form id="reqForm" class="card row req">
+      <input id="reqIn" maxlength="500" aria-label="הבקשה לעוזר" placeholder="למשל: תזמין לי שלוש פיצות מפיצה שמש" required>
+      <button id="go" type="submit">שלח לעוזר</button>
+    </form>
+    <div id="runInfo" class="info" hidden></div>
+    <div id="rate" class="banner warn" role="status" hidden>
+      <span id="rateText"></span> <strong id="rateCount" class="count"></strong>
+    </div>
+    <div id="empty" class="empty">
+      <div class="empty-ico">💬</div>
+      <p><strong>עוד לא התחלה שיחה</strong></p>
+      <p>כתבו בקשה לעוזר האישי וצפו בו מנהל שיחה עם העסק. נסו לדוגמה:</p>
+      <div id="examples" class="chips"></div>
+    </div>
+    <div id="chat" class="chat" aria-live="polite"></div>
+    <form id="ask" class="card row ask" hidden>
+      <div id="askQ"></div>
+      <input id="askIn" maxlength="300" aria-label="התשובה שלך לשאלת העוזר" placeholder="התשובה שלך">
+      <button id="askBtn" type="submit">שלח</button>
+    </form>
+    <div id="error" class="banner err" role="alert" hidden>
+      <span id="errText"></span>
+      <button id="retry" type="button">נסה שוב</button>
+    </div>
+    <div class="row ctl">
+      <button id="cancel" class="secondary" type="button" hidden>ביטול</button>
+    </div>
+    <div id="result" class="card result" hidden></div>
+  </section>
+  <aside>
+    <section class="card">
+      <h2>הפרופיל שלי</h2>
+      <form id="profile" name="profile" autocomplete="off">
+        <label>שם<input name="name" maxlength="100"></label>
+        <label>כתובת<input name="address" maxlength="200"></label>
+        <label>טלפון<input name="phone" maxlength="50" dir="ltr"></label>
+        <label>מספר חבר בקופת חולים<input name="member_id" maxlength="50" dir="ltr"></label>
+        <label>העדפות<input name="preferences" maxlength="300"></label>
+      </form>
+      <p class="privacy">🔒 הפרופיל וההיסטוריה נשמרים רק בדפדפן שלך, והפרטים נשלחים לשירות Gemini כדי לנהל את השיחה.</p>
+    </section>
+    <section class="card">
+      <h2>סוכנים בעולם</h2>
+      <ul id="agents" class="plain"></ul>
+    </section>
+    <section class="card">
+      <h2>היסטוריה <button id="clearHist" class="link" type="button">מחק הכול</button></h2>
+      <ul id="history" class="plain"></ul>
+    </section>
+  </aside>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
