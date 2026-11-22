@@ -1,11 +1,31 @@
 """עטיפה יחידה לגישה ל-Gemini. המפתח נקרא רק כאן, ממשתנה הסביבה."""
 import math
 import os
+import time
 import httpx
 
 BASE = "https://generativelanguage.googleapis.com/v1beta"
-DEFAULT_MODEL = "gemini-2.5-flash"
-TIMEOUT = 25.0
+# סדר הניסיון כשמודל לא זמין (עומס, הוצא משימוש, מגבלת קצב או timeout). נבדק מול Free Tier ב-11/2026.
+FALLBACK_MODELS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-3-flash-preview",
+]
+TIMEOUT = 20.0      # לכל ניסיון
+DEADLINE = 50.0     # לכל הקריאה, מתחת ל-maxDuration של Vercel
+RETRYABLE = {404, 408, 500, 502, 503, 504}
+_gone = set()       # מודלים שהחזירו 404 נדלגים עד שהמופע של השרת מתחלף
+
+
+def _models():
+    """GEMINI_MODEL (מודל אחד או רשימה מופרדת בפסיקים) קודם, ואחריו רשימת הגיבוי, בלי כפילויות."""
+    env = [m.strip() for m in os.environ.get("GEMINI_MODEL", "").split(",") if m.strip()]
+    out = []
+    for m in env + FALLBACK_MODELS:
+        if m not in out and m not in _gone:
+            out.append(m)
+    return out or FALLBACK_MODELS[:]
 
 
 class GeminiError(Exception):
@@ -44,8 +64,8 @@ def _retry_delay(resp, data):
 
 
 def generate(system, contents, schema=None, temperature=0.8):
-    """מחזיר טקסט. אם schema ניתן, הפלט JSON לפי הסכמה."""
-    model = os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
+    """מחזיר טקסט. אם schema ניתן, הפלט JSON לפי הסכמה.
+    אם מודל לא זמין, עובר למודל הבא ברשימה. נכשל רק אם כולם נכשלו או שנגמר הזמן."""
     cfg = {"temperature": temperature}
     if schema:
         cfg.update({"responseMimeType": "application/json", "responseSchema": schema})
@@ -54,31 +74,51 @@ def generate(system, contents, schema=None, temperature=0.8):
         "contents": contents,
         "generationConfig": cfg,
     }
-    try:
-        resp = httpx.post(
-            f"{BASE}/models/{model}:generateContent",
-            headers={"x-goog-api-key": _key(), "Content-Type": "application/json"},
-            json=body,
-            timeout=TIMEOUT,
-        )
-    except httpx.TimeoutException:
-        raise GeminiError("השירות לא הגיב בזמן. נסו שוב.")
-    except httpx.HTTPError:
-        raise GeminiError("אירעה שגיאת תקשורת מול שירות ה-AI.")
-    try:
-        data = resp.json()
-    except ValueError:
-        data = {}
-    err = data.get("error", {}) if isinstance(data, dict) else {}
-    if resp.status_code == 429 or err.get("status") == "RESOURCE_EXHAUSTED":
-        raise GeminiError("מגבלת קצב", "rate_limited", _retry_delay(resp, data))
-    if resp.status_code >= 400:
-        detail = _clean(str(err.get("message", "")))[:200]
-        raise GeminiError(f"שירות ה-AI החזיר שגיאה ({resp.status_code}). {detail}")
-    try:
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except (KeyError, IndexError, TypeError):
-        raise GeminiError("שירות ה-AI לא החזיר תשובה (ייתכן שנחסמה). נסו לנסח מחדש.")
+    key = _key()
+    start = time.monotonic()
+    last = GeminiError("שירות ה-AI אינו זמין כרגע. נסו שוב.")
+    rate_delays = []
+    for model in _models():
+        remaining = DEADLINE - (time.monotonic() - start)
+        if remaining < 3:
+            break
+        try:
+            resp = httpx.post(
+                f"{BASE}/models/{model}:generateContent",
+                headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+                json=body,
+                timeout=min(TIMEOUT, remaining),
+            )
+        except httpx.TimeoutException:
+            last = GeminiError("השירות לא הגיב בזמן. נסו שוב.")
+            continue
+        except httpx.HTTPError:
+            last = GeminiError("אירעה שגיאת תקשורת מול שירות ה-AI.")
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {}
+        err = data.get("error", {}) if isinstance(data, dict) else {}
+        if resp.status_code == 429 or err.get("status") == "RESOURCE_EXHAUSTED":
+            rate_delays.append(_retry_delay(resp, data))   # המכסה ב-Free Tier נפרדת לכל מודל
+            continue
+        if resp.status_code in RETRYABLE:
+            if resp.status_code == 404:
+                _gone.add(model)
+            detail = _clean(str(err.get("message", "")))[:200]
+            last = GeminiError(f"שירות ה-AI החזיר שגיאה ({resp.status_code}). {detail}")
+            continue
+        if resp.status_code >= 400:
+            detail = _clean(str(err.get("message", "")))[:200]
+            raise GeminiError(f"שירות ה-AI החזיר שגיאה ({resp.status_code}). {detail}")
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except (KeyError, IndexError, TypeError):
+            raise GeminiError("שירות ה-AI לא החזיר תשובה (ייתכן שנחסמה). נסו לנסח מחדש.")
+    if rate_delays:   # לפחות מודל אחד רק חסום זמנית: הלקוח יחכה וינסה שוב
+        raise GeminiError("מגבלת קצב", "rate_limited", min(rate_delays))
+    raise last
 
 
 def list_models():
